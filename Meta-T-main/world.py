@@ -12,6 +12,7 @@ import platform
 import random
 import tkinter
 from tkinter import simpledialog
+
 #import parallel
 
 import pygame, numpy
@@ -61,7 +62,7 @@ if platform.system() == 'Windows':
     sep = "/"
     
 
-scannermode = 0
+scannermode = 1
 # initialise parallel port and set all pins low
 if scannermode == 1:
     #logFile.write('Experiment run in the scanner\n\n')
@@ -71,10 +72,27 @@ if scannermode == 1:
     #parport.setDataDir(1)    
     # set the parallel port data pins (2-9) to zero before we start
     #parport.setData(0)
-    pport.Out32(pportaddress, 0)
-    print('rubish')
+    # Using the DPIXX device at York. We need to initialise it here, then call it
+    # Note: We also need a function called 'MortonNumber' to send data correctly to the EEG. Don't ask!
 
+
+    #pport.Out32(pportaddress, 0)
+    #print('rubish')
+    print('Initialising DPIXX device')
+    from pypixxlib import _libdpx as dp
+    dp.DPxOpen()
+    dp.DPxSelectDevice('VIEWPixx3D')
+    dp.DPxStopDoutSched()
+    print(dp)
     
+def mortonNumber(x,y): # This computes a morton number (interleaved bits)
+    # For some reason we need to do this to our triggers before they go to the ANT EEG system from the DPIXX
+    x=int(x)
+    y=int(y)
+    output=0
+    for i in range(sys.getsizeof(x)*8):
+        output |= (x & 1 << i) << i|(y & 1 << i) << (i+1)
+    return output
 
 class World( object ):
 
@@ -416,9 +434,6 @@ class World( object ):
         self.pause_font = pygame.font.Font( None, int(.113 * self.worldsurf_rect.height) )
 
         # Colors
-
-
-
         self.NES_colors = Zoid.NES_colors
         self.STANDARD_colors = Zoid.STANDARD_colors
 
@@ -877,7 +892,7 @@ class World( object ):
         self.set_var('final_pause_duration', 300, 'int')
         self.set_var('fall_disable_interval', 2, 'int')
         self.set_var('skip_gameover_anim', True, 'bool')
-        self.set_var('reset_board_on_levelup', True, 'bool')
+        self.set_var('reset_board_on_levelup', False, 'bool')
         self.set_var('disable_manual_drop', False, 'bool')
 
 
@@ -1419,11 +1434,15 @@ class World( object ):
 
 
     def send_trigger( self ):
-        # handles sending of event triggers to MEG
+        # handles sending of event triggers to MEG or EEG
         if self.tEvent != None:
             if scannermode == 1:
                 #parport.setData(self.tValues[f'{self.tEvent}'])
-                pport.Out32(pportaddress, self.tValues[f'{self.tEvent}'])
+                #pport.Out32(pportaddress, self.tValues[f'{self.tEvent}'])
+
+                bitMask = 0xffffff
+                dp.DPxSetDoutValue(mortonNumber(0,self.tValues[f'{self.tEvent}'])*2, bitMask)
+                dp.DPxUpdateRegCache()
             # for now just log trigger events in console
             print(f'sent {self.tEvent} trigger with bit value of {self.tValues[self.tEvent]}')
 
@@ -2094,7 +2113,8 @@ class World( object ):
                 self.log_game_event( "KEYPRESS", dir, pygame.key.name(event.key))
             elif event.type == pygame.JOYBUTTONUP or event.type == pygame.JOYBUTTONDOWN:
                 dir = "PRESS" if event.type == pygame.JOYBUTTONDOWN else "RELEASE"
-                self.log_game_event( "KEYPRESS", dir, self.buttons[event.button] )
+                if event.button in self.buttons:
+                    self.log_game_event( "KEYPRESS", dir, self.buttons[event.button] )
             elif event.type == pygame.MIDIIN:
                 if event.status == 144:
                     self.tEvent = 'KeyPress'
@@ -3334,8 +3354,10 @@ class World( object ):
             self.tEvent = None
             # Add check for parallel port available here ARW
             if scannermode == 1:
+                pass
                 #parport.setData(0)
-                pport.Out32(pportaddress, 0) #PH do we need this
+                #pport.Out32(pportaddress, 0) #PH do we need this
+                
         if self.state == self.STATE_PLAY:
             self.log_world()
         if self.level - self.starting_level >= self.number_of_levels:
