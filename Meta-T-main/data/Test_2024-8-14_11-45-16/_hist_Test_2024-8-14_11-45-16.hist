@@ -1,0 +1,100 @@
+SID: Test
+RIN: 000000000
+ECID: NIL
+game_type: "standard"
+Start time: 1723632316.1760519
+Session: 2024-8-14_11-45-16
+random_seeds: [17236323161760518373376]
+seed_order: [0]
+Log-Version: 3.1
+Fixed-length logging: True
+Eyetracker: None
+distance_from_screen: -1.0
+
+Manipulations:
+inverted: False
+tetris_zoids: True
+pentix_zoids: False
+tiny_zoids: False
+gravity: True
+undo: False
+visible_board: True
+visible_zoid: True
+board_echo_placed: True
+board_echo_lc: True
+look_ahead: 1
+far_next: False
+next_dim: False
+next_dim_alpha: 50
+next_mask: False
+board_mask: False
+ghost_zoid: False
+zoid_slam: False
+keep_zoid: False
+wall_kicking: False
+feedback_mode: False
+dimtris: False
+dimtris_alphas: [255, 225, 200, 175, 150, 125, 100, 75, 50, 25, 0]
+gridlines_x: False
+gridlines_y: False
+gridlines_color: (50, 50, 50)
+grace_period: 0
+grace_refresh: False
+pause_enabled: True
+das_chargeable: True
+das_reversible: True
+bg_color: (0, 0, 0)
+border_color: (250, 250, 250)
+kept_bgc: (50, 50, 50)
+
+Mechanics:
+continues: 1
+game_ht: 20
+game_wd: 10
+fullscreen: True
+fps: 30
+tps: 60
+das_delay: 16
+das_repeat: 6
+are_delay: 10
+lc_delay: 20
+lines_per_lvl: 10
+intervals: [48, 43, 38, 33, 28, 23, 18, 13, 8, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1]
+drop_interval: 2
+scoring: [40, 100, 300, 1200, 6000]
+drop_bonus: True
+seven_bag_switch: False
+gameover_fixcross: False
+gameover_fixcross_size: 15
+gameover_fixcross_width: 3
+gameover_fixcross_frames: 30
+gameover_fixcross_tolerance: 50
+gameover_fixcross_frames_tolerance: 2
+gameover_fixcross_color: (0, 115, 10)
+gameover_fixcross_timeout: 600
+calibration_points: 5
+calibration_auto: True
+validation_accuracy: 0.8
+automated_revalidation: True
+
+Layout:
+Screen X: 1920
+Screen Y: 1080
+worldsurf_rect.width: 1920
+worldsurf_rect.height: 1080
+gamesurf_rect.top: 90
+gamesurf_rect.left: 735
+gamesurf_rect.width: 450
+gamesurf_rect.height: 900
+nextsurf_rect.top: 90
+nextsurf_rect.left: 1320
+nextsurf_rect.width: 202
+nextsurf_rect.height: 202
+side: 45
+score_lab_left: (90, 540.0)
+lines_lab_left: (90, 590.0)
+level_lab_left: (90, 640.0)
+score_left: (463, 540.0)
+lines_left: (463, 590.0)
+level_left: (463, 640.0)
+
