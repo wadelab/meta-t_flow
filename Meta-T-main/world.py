@@ -10,12 +10,13 @@ import json
 import datetime
 import platform
 import random
-import tkinter
-from tkinter import simpledialog
-
+#import tkinter
+#from tkinter import simpledialog
+from collections import deque
 #import parallel
 
-import pygame, numpy
+import pygame
+import numpy as np
 
 #PH midi input
 from pygame import midi
@@ -39,8 +40,6 @@ try:
     print("Pyview pygame support success.")
     from pyviewx.pygame import Validator
     print("Pyview validator support success.")
-    import numpy as np
-    print("numpy success")
     eyetrackerSupport = True
 except ImportError:
     print("Warning: Eyetracker not supported on this machine.")
@@ -264,7 +263,7 @@ class World( object ):
         #pygame.key.set_repeat( self.das_delay, self.das_repeat )
         self.das_timer = 0
         self.das_held = 0
-
+        self.das_delay_counter = 0
 
         # Scoring and leveling
         self.level = self.starting_level
@@ -295,6 +294,7 @@ class World( object ):
         self.fall_disable_timer = 0
         self.get_ready_duration = 4
         self.get_ready_sound_played = False
+
 
         # Determine Fixed or Random Seeds
         self.fixed_seeds = True if 'random_seeds' in self.config else False
@@ -723,8 +723,8 @@ class World( object ):
         #print(self.config)
 
         #read once for value
-        self.set_var('logdir', 'data', 'string')
         self.set_var('SID', 'Test', 'string')
+        self.set_var('logdir', 'data', 'string')
 
         self.set_var('RIN', '000000000', 'string')
 
@@ -886,6 +886,9 @@ class World( object ):
 
         self.set_var('show_high_score', False, 'bool')
 
+        self.set_var('input_delay', 0, 'int')
+        self.set_var('delay_randomization', 0, 'float')
+        self.set_var('das_delay_randomization', 0, 'float')
         self.set_var('starting_level', 0, 'int')
         self.set_var('levelup_interval', 90, 'int')
         self.set_var('number_of_levels', 10, 'int')
@@ -1024,8 +1027,8 @@ class World( object ):
 
         if self.args.logfile:
 
-            self.filename = self.SID + "_" + self.args.logfile
-            self.logname = os.path.join( self.logdir, self.filename )
+            self.filename = f'{self.input_delay}_{self.intervals}_{self.args.logfile}'
+            self.logname = os.path.join( self.logdir, self.SID, self.filename )
 
             if not os.path.exists( self.logdir ):
                 os.makedirs( self.logdir )
@@ -1783,13 +1786,14 @@ class World( object ):
             self.draw_text( "High:", self.scores_font, ( 210, 210, 210 ), self.high_lab_left, self.worldsurf, "midleft" )
             self.draw_text( str( self.high_score ), self.scores_font, ( 210, 210, 210 ), self.high_left, self.worldsurf, "midright" )
 
-        self.draw_text( "Game %d" % self.game_number, self.intro_font, ( 196, 196, 196 ), ( self.gamesurf_rect.centerx, self.gamesurf_rect.top / 2 ), self.worldsurf )
-        self.draw_text( "Score:", self.scores_font, ( 210, 210, 210 ), self.score_lab_left, self.worldsurf, "midleft" )
-        self.draw_text( "Lines:", self.scores_font, ( 210, 210, 210 ), self.lines_lab_left, self.worldsurf, "midleft" )
-        self.draw_text( "Level:", self.scores_font, ( 210, 210, 210 ), self.level_lab_left, self.worldsurf, "midleft" )
-        self.draw_text( str( self.score ), self.scores_font, ( 210, 210, 210 ), self.score_left, self.worldsurf, "midright" )
-        self.draw_text( str( self.lines_cleared ), self.scores_font, ( 210, 210, 210 ), self.lines_left, self.worldsurf, "midright" )
-        self.draw_text( str( self.level ), self.scores_font, ( 210, 210, 210 ), self.level_left, self.worldsurf, "midright" )
+        if self.visible_game_info:
+            self.draw_text( "Game %d" % self.game_number, self.intro_font, ( 196, 196, 196 ), ( self.gamesurf_rect.centerx, self.gamesurf_rect.top / 2 ), self.worldsurf )
+            self.draw_text( "Score:", self.scores_font, ( 210, 210, 210 ), self.score_lab_left, self.worldsurf, "midleft" )
+            self.draw_text( "Lines:", self.scores_font, ( 210, 210, 210 ), self.lines_lab_left, self.worldsurf, "midleft" )
+            self.draw_text( "Level:", self.scores_font, ( 210, 210, 210 ), self.level_lab_left, self.worldsurf, "midleft" )
+            self.draw_text( str( self.score ), self.scores_font, ( 210, 210, 210 ), self.score_left, self.worldsurf, "midright" )
+            self.draw_text( str( self.lines_cleared ), self.scores_font, ( 210, 210, 210 ), self.lines_left, self.worldsurf, "midright" )
+            self.draw_text( str( self.level ), self.scores_font, ( 210, 210, 210 ), self.level_left, self.worldsurf, "midright" )
 
         self.draw_borders()
         self.draw_text( "PAUSED", self.pause_font, ( 210, 210, 210 ), self.worldsurf_rect.center, self.worldsurf )
@@ -2066,7 +2070,8 @@ class World( object ):
         elif self.state == self.STATE_GAMEOVER:
             self.input_continue()
             self.draw_game_over()
-            self.draw_scores()
+            if self.visible_game_info:
+                self.draw_scores()
             self.draw_borders()
         elif self.state == self.STATE_AAR:
             self.draw_AAR()
@@ -2089,7 +2094,6 @@ class World( object ):
     #processes all relevant game input
     def process_input( self ):
         #PH this is how to get midi input
-
         eventList = midi.midis2events(self.midi_in.read(40), self.midi_in)
         #eventList.append(pygame.event.get())
         for event in eventList:
@@ -2103,407 +2107,434 @@ class World( object ):
                 #'data2' = velocity (only works for keydown, otherwise 64)
         #self.midi_in
         #print(midi_in)
+
+        # Process regular Pygame events
         for event in pygame.event.get():
-            #print(event)
-            #if event.type in [pygame.midi.MIDIIN]: #PH
-            #    print (event)
-            if event.type == pygame.KEYUP or event.type == pygame.KEYDOWN:
-                dir = "PRESS" if event.type == pygame.KEYDOWN else "RELEASE"
-                self.tEvent = 'KeyPress'
-                self.log_game_event( "KEYPRESS", dir, pygame.key.name(event.key))
-            elif event.type == pygame.JOYBUTTONUP or event.type == pygame.JOYBUTTONDOWN:
-                dir = "PRESS" if event.type == pygame.JOYBUTTONDOWN else "RELEASE"
-                if event.button in self.buttons:
-                    self.log_game_event( "KEYPRESS", dir, self.buttons[event.button] )
-            elif event.type == pygame.MIDIIN:
-                if event.status == 144:
-                    self.tEvent = 'KeyPress'
-                    dir = "PRESS"
-                elif event.status == 128:
-                    dir = "RELEASE"
-                self.log_game_event( "KEYPRESS", dir, event.data1)
-            #Universal controls
-
-            #escape clause
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                self.lc.stop()
-
-            #screenshot clause
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
-                self.do_screenshot()
-
-            #eyetracker keys (number line)
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_5 and self.args.eyetracker:
-                self.eye_conf_borders = not self.eye_conf_borders
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_6 and self.args.eyetracker:
-                self.spotlight = not self.spotlight
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_7 and self.args.eyetracker:
-                self.draw_samps = not self.draw_samps
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_8 and self.args.eyetracker:
-                self.draw_avg = not self.draw_avg
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_9 and self.args.eyetracker:
-                self.draw_err = not self.draw_err
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_0 and self.args.eyetracker:
-                self.draw_fixation = not self.draw_fixation
-
-            #Intro state controls
             if self.state == self.STATE_INTRO:
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE:
-                        self.state += 1
-                        self.time_limit_start = get_time()
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    self.process_event(event)
+                elif event.type == pygame.JOYBUTTONDOWN and event.button == self.JOY_START:
+                    self.process_event(event)
+            #escape clause
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.lc.stop()
+            else:
+                self.process_event(event)
 
-                #joystick controls
-                elif event.type == pygame.JOYBUTTONDOWN:
-                    if event.button == self.JOY_START :
-                        self.state += 1
-                        self.time_limit_start = get_time()
 
-            #After-Action Review controls
-            elif self.state == self.STATE_AAR:
-                if event.type == pygame.KEYUP:
-                    if event.key == pygame.K_DOWN or event.key == pygame.K_1:
+    def adjust_input_delay( self ):
+        # adds a small random perturbation to the input delay if delay randomization is enabled
+        # delay_factor = self.input_delay * self.delay_randomization
+        randomized_delay = random.uniform(0, self.input_delay)
+        # convert input delay to seconds before return
+        return randomized_delay / 1000
+
+
+    def delayed_action(self, action):
+        self.random_input_delay = self.adjust_input_delay()
+        print(self.random_input_delay*1000)
+        self.log_game_event("RANDOM_INPUT_DELAY_MS", np.round(self.random_input_delay*1000))
+        reactor.callLater(self.random_input_delay, action)
+
+
+    def process_event( self , event):
+    # processes input event passed from process_input
+
+        #print(event)
+        #if event.type in [pygame.midi.MIDIIN]: #PH
+        #    print (event)
+        if event.type == pygame.KEYUP or event.type == pygame.KEYDOWN:
+            dir = "PRESS" if event.type == pygame.KEYDOWN else "RELEASE"
+            self.tEvent = 'KeyPress'
+            self.log_game_event( "KEYPRESS", dir, pygame.key.name(event.key))
+        elif event.type == pygame.JOYBUTTONUP or event.type == pygame.JOYBUTTONDOWN:
+            dir = "PRESS" if event.type == pygame.JOYBUTTONDOWN else "RELEASE"
+            self.log_game_event( "KEYPRESS", dir, self.buttons[event.button] )
+        elif event.type == pygame.MIDIIN:
+            if event.status == 144:
+                self.tEvent = 'KeyPress'
+                dir = "PRESS"
+            elif event.status == 128:
+                dir = "RELEASE"
+            self.log_game_event( "KEYPRESS", dir, event.data1)
+        #Universal controls
+
+
+        #screenshot clause
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
+            self.do_screenshot()
+
+        #eyetracker keys (number line)
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_5 and self.args.eyetracker:
+            self.eye_conf_borders = not self.eye_conf_borders
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_6 and self.args.eyetracker:
+            self.spotlight = not self.spotlight
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_7 and self.args.eyetracker:
+            self.draw_samps = not self.draw_samps
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_8 and self.args.eyetracker:
+            self.draw_avg = not self.draw_avg
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_9 and self.args.eyetracker:
+            self.draw_err = not self.draw_err
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_0 and self.args.eyetracker:
+            self.draw_fixation = not self.draw_fixation
+
+        #Intro state controls
+        if self.state == self.STATE_INTRO:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self.state += 1
+                    self.time_limit_start = get_time()
+
+            #joystick controls
+            elif event.type == pygame.JOYBUTTONDOWN:
+                if event.button == self.JOY_START :
+                    self.state += 1
+                    self.time_limit_start = get_time()
+
+        #After-Action Review controls
+        elif self.state == self.STATE_AAR:
+            if event.type == pygame.KEYUP:
+                if event.key == pygame.K_DOWN or event.key == pygame.K_1:
+                    self.input_stop_drop()
+                elif event.key == pygame.K_UP or event.key == pygame.K_w and self.inverted:
+                    self.input_stop_drop()
+                elif event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                    self.input_trans_stop(-1)
+                elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    self.input_trans_stop(1)
+                elif event.key == pygame.K_SPACE and self.AAR_selfpaced:
+                    self.input_end_AAR()
+            elif event.type == pygame.JOYBUTTONDOWN:
+                if event.button == self.JOY_START and self.AAR_selfpaced:
+                    self.input_end_AAR()
+            elif event.type == pygame.JOYBUTTONUP:
+                if not self.two_player or event.joy == 0:
+                    if event.button == self.JOY_DOWN:
                         self.input_stop_drop()
-                    elif event.key == pygame.K_UP or event.key == pygame.K_w and self.inverted:
+                    elif event.button == self.JOY_UP and self.inverted:
                         self.input_stop_drop()
-                    elif event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                    elif event.button == self.JOY_LEFT:
                         self.input_trans_stop(-1)
-                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    elif event.button == self.JOY_RIGHT:
                         self.input_trans_stop(1)
-                    elif event.key == pygame.K_SPACE and self.AAR_selfpaced:
-                        self.input_end_AAR()
-                elif event.type == pygame.JOYBUTTONDOWN:
-                    if event.button == self.JOY_START and self.AAR_selfpaced:
-                        self.input_end_AAR()
-                elif event.type == pygame.JOYBUTTONUP:
-                    if not self.two_player or event.joy == 0:
-                        if event.button == self.JOY_DOWN:
+
+
+        #Gameplay state controls
+        elif self.state == self.STATE_PLAY:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                    self.tEvent = 'KeyPressLeft'
+                    self.delayed_action(self.input_trans_left)
+                    self.das_held = -1
+                elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    self.tEvent = 'KeyPressRight'
+                    self.delayed_action(self.input_trans_right)
+                    self.das_held = 1
+                elif event.key == pygame.K_DOWN or event.key == pygame.K_1:
+                    self.tEvent = 'KeyPressDown'
+                    if self.inverted:
+                        self.delayed_action(self.input_rotate_single)
+                    else:
+                        self.delayed_action(self.input_start_drop)
+                elif event.key == pygame.K_UP or event.key == pygame.K_w:
+                    if self.inverted:
+                        self.delayed_action(self.input_start_drop)
+                    else:
+                        self.input_rotate_single()
+
+                elif event.key == pygame.K_6:
+                    self.tEvent = 'KeyPressClockwise'
+                    self.input_clockwise()
+                elif event.key == pygame.K_3:
+                    self.tEvent = 'KeyPressCounterClockwise'
+                    self.input_counterclockwise()
+
+                elif event.key == pygame.K_r:
+                    self.input_undo()
+
+                elif event.key == pygame.K_SPACE:
+                    self.input_slam()
+                    self.input_place()
+
+                elif event.key == pygame.K_e:
+                    self.input_swap()
+
+
+                elif event.key == pygame.K_q:
+                    self.input_mask_toggle(True)
+
+                #pause clause
+                elif event.key == pygame.K_p:
+                    self.input_pause()
+
+                #solver
+                elif event.key == pygame.K_m:
+                    self.input_solve()
+
+                elif event.key == pygame.K_n:
+                    if self.solve_button:
+                        self.auto_solve = True
+
+                #hints
+                elif event.key == pygame.K_h:
+                    #if hints aren't continuous, and the button is allowed
+                    if self.hint_button and not self.hint_zoid and (self.hints != self.hint_limit):
+                        self.hints += 1
+                        self.hint_toggle = True
+
+
+            elif event.type == pygame.KEYUP:
+                if event.key == pygame.K_DOWN or event.key == pygame.K_1:
+                    self.input_stop_drop()
+                elif event.key == pygame.K_UP or event.key == pygame.K_w and self.inverted:
+                    self.input_stop_drop()
+                elif event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                    self.input_trans_stop(-1)
+                elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    self.input_trans_stop(1)
+                elif event.key == pygame.K_q:
+                    self.input_mask_toggle(False)
+                elif event.key == pygame.K_DOWN or event.key == pygame.K_1:
+                    if self.inverted:
+                        if pygame.KMOD_SHIFT:
+                            self.add_latency("RL")
+                        else:
+                            self.add_latency("RR")
+                elif event.key == pygame.K_UP or event.key == pygame.K_w:
+                    if not self.inverted:
+                        if pygame.KMOD_SHIFT:
+                            self.add_latency("RL")
+                        else:
+                            self.add_latency("RR")
+                elif event.key == pygame.K_j:
+                    self.add_latency("RR")
+                elif event.key == pygame.K_k:
+                    self.add_latency("RL")
+
+                #solver
+                elif event.key == pygame.K_n:
+                    if self.solve_button:
+                        self.auto_solve = False
+
+                #hints
+                elif event.key == pygame.K_h:
+                    #if hints aren't continuous, and the button is allowed
+                    if self.hint_button and not self.hint_zoid and self.hint_release:
+                        self.hint_toggle = False
+
+            elif event.type == pygame.JOYAXISMOTION:
+                if (not self.two_player or event.joy == 0) and self.joyaxis_enabled:
+
+                    pressed = ""
+                    released = ""
+
+                    #key is pressed
+                    if event.axis == 0:
+                        if round(event.value) == 1.0:
+                            pressed = "RIGHT"
+                            released = self.last_ud_pressed
+                            self.last_ud_pressed = ""
+                        elif round(event.value) == -1.0:
+                            pressed = "LEFT"
+                            released = self.last_ud_pressed
+                            self.last_ud_pressed = ""
+                        elif round(event.value) == 0.0:
+                            released = self.last_lr_pressed
+                            self.last_lr_pressed = ""
+                    elif event.axis == 1:
+                        if round(event.value) == 1.0:
+                            pressed = "DOWN"
+                            if not self.inverted:
+                                released = self.last_lr_pressed
+                                self.last_lr_pressed = ""
+                        elif round(event.value) == -1.0:
+                            pressed = "UP"
+                            if self.inverted:
+                                released = self.last_lr_pressed
+                                self.last_lr_pressed = ""
+                        elif round(event.value) == 0.0:
+                            released = self.last_ud_pressed
+                            self.last_ud_pressed = ""
+
+                    #resolve release event
+                    if released != "":
+                        if released == "DOWN":
                             self.input_stop_drop()
-                        elif event.button == self.JOY_UP and self.inverted:
+                        elif released == "UP" and self.inverted:
                             self.input_stop_drop()
-                        elif event.button == self.JOY_LEFT:
+                        elif released == "LEFT":
                             self.input_trans_stop(-1)
-                        elif event.button == self.JOY_RIGHT:
+                        elif released == "RIGHT":
                             self.input_trans_stop(1)
 
+                        self.log_game_event( "KEYPRESS", "RELEASE", released)
+                        #print("released", released)
 
-            #Gameplay state controls
-            elif self.state == self.STATE_PLAY:
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                    #resolve pressed
+                    if pressed != "":
+                        if pressed == "DOWN":
+                            self.last_ud_pressed = pressed
+                            if self.inverted:
+                                self.input_slam()
+                                self.input_undo()
+                            else:
+                                self.tEvent = 'KeyPressDown'
+                                self.input_start_drop()
+                        elif pressed == "UP":
+                            self.last_ud_pressed = pressed
+                            if self.inverted:
+                                self.input_start_drop()
+                            else:
+                                self.input_slam()
+                                self.input_undo()
+                        elif pressed == "LEFT":
+                            self.last_lr_pressed = pressed
+                            self.input_trans_left()
+                            self.das_held = -1
+                        elif pressed == "RIGHT":
+                            self.last_lr_pressed = pressed
+                            self.input_trans_right()
+                            self.das_held = 1
+                        self.log_game_event( "KEYPRESS", "PRESS", pressed)
+                        #print("pressed", pressed)
+
+
+
+
+            elif event.type == pygame.JOYBUTTONDOWN:
+                #player 1
+                if not self.two_player or event.joy == 0:
+                    if event.button == self.JOY_LEFT:
+                        self.input_trans_left()
+                        self.das_held = -1
+                    elif event.button == self.JOY_RIGHT:
+                        self.input_trans_right()
+                        self.das_held = 1
+                    elif event.button == self.JOY_DOWN:
+                        if self.inverted:
+                            self.input_slam()
+                            self.input_undo()
+                        else:
+                            self.tEvent = 'KeyPressDown'
+                            self.input_start_drop()
+                    elif event.button == self.JOY_UP:
+                        if self.inverted:
+                            self.input_start_drop()
+                        else:
+                            self.input_slam()
+                            self.input_undo()
+
+                #player 2
+                if not self.two_player or event.joy == 1:
+                    if event.button == self.JOY_B:
+                        self.input_counterclockwise()
+                    elif event.button == self.JOY_A:
+                        self.input_clockwise()
+                    elif event.button == self.JOY_SELECT:
+                        self.input_mask_toggle(True)
+                        self.input_place()
+                        self.input_swap()
+
+                #both players
+                if event.button == self.JOY_START:
+                    if self.pause_enabled:
+                        self.input_pause()
+                    else:
+                        self.input_place()
+
+
+
+            elif event.type == pygame.JOYBUTTONUP:
+                if not self.two_player or event.joy == 0:
+                    if event.button == self.JOY_DOWN:
+                        self.input_stop_drop()
+                    elif event.button == self.JOY_UP and self.inverted:
+                        self.input_stop_drop()
+                    elif event.button == self.JOY_LEFT:
+                        self.input_trans_stop(-1)
+                    elif event.button == self.JOY_RIGHT:
+                        self.input_trans_stop(1)
+                    elif event.button == self.JOY_A:
+                        self.add_latency("RR")
+                    elif event.button == self.JOY_B:
+                        self.add_latency("RL")
+
+                if not self.two_player or event.joy == 1:
+                    if event.button == self.JOY_SELECT:
+                        self.input_mask_toggle(False)
+            #PH MIDI
+            elif event.type == pygame.MIDIIN:
+                if event.status == 144:
+                    print("MKey Down")
+                    if event.data1 == 72:
                         self.tEvent = 'KeyPressLeft'
                         self.input_trans_left()
                         self.das_held = -1
-                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    elif event.data1 == 76:
                         self.tEvent = 'KeyPressRight'
                         self.input_trans_right()
                         self.das_held = 1
-
-                    elif event.key == pygame.K_DOWN or event.key == pygame.K_1:
-                        self.tEvent = 'KeyPressDown'
+                    elif event.data1 == 74:
+                        
                         if self.inverted:
+                            self.tEvent = 'KeyPressClockwise'
                             self.input_rotate_single()
                         else:
+                            self.tEvent = 'KeyPressDown'
                             self.input_start_drop()
-                    elif event.key == pygame.K_UP or event.key == pygame.K_w:
+                    elif event.data1 == 48:
                         if self.inverted:
+                            self.tEvent = 'KeyPressDown'
                             self.input_start_drop()
                         else:
+                            self.tEvent = 'KeyPressClockwise'
                             self.input_rotate_single()
-
-                    elif event.key == pygame.K_6:
-                        self.tEvent = 'KeyPressClockwise'
-                        self.input_clockwise()
-                    elif event.key == pygame.K_3:
-                        self.tEvent = 'KeyPressCounterClockwise'
-                        self.input_counterclockwise()
-
-                    elif event.key == pygame.K_r:
-                        self.input_undo()
-
-                    elif event.key == pygame.K_SPACE:
-                        self.input_slam()
-                        self.input_place()
-
-                    elif event.key == pygame.K_e:
-                        self.input_swap()
-
-
-                    elif event.key == pygame.K_q:
-                        self.input_mask_toggle(True)
-
-                    #pause clause
-                    elif event.key == pygame.K_p:
-                        self.input_pause()
-
-                    #solver
-                    elif event.key == pygame.K_m:
-                        self.input_solve()
-
-                    elif event.key == pygame.K_n:
-                        if self.solve_button:
-                            self.auto_solve = True
-
-                    #hints
-                    elif event.key == pygame.K_h:
-                        #if hints aren't continuous, and the button is allowed
-                        if self.hint_button and not self.hint_zoid and (self.hints != self.hint_limit):
-                            self.hints += 1
-                            self.hint_toggle = True
-
-
-                elif event.type == pygame.KEYUP:
-                    if event.key == pygame.K_DOWN or event.key == pygame.K_1:
-                        self.input_stop_drop()
-                    elif event.key == pygame.K_UP or event.key == pygame.K_w and self.inverted:
-                        self.input_stop_drop()
-                    elif event.key == pygame.K_LEFT or event.key == pygame.K_2:
+                elif event.status == 128:
+                    print("MKey Up")
+                    if event.data1 == 72:
+                        #print("stop drop")
                         self.input_trans_stop(-1)
-                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_4:
+                    elif event.data1 == 76:
                         self.input_trans_stop(1)
-                    elif event.key == pygame.K_q:
-                        self.input_mask_toggle(False)
-                    elif event.key == pygame.K_DOWN or event.key == pygame.K_1:
-                        if self.inverted:
-                            if pygame.KMOD_SHIFT:
-                                self.add_latency("RL")
-                            else:
-                                self.add_latency("RR")
-                    elif event.key == pygame.K_UP or event.key == pygame.K_w:
-                        if not self.inverted:
-                            if pygame.KMOD_SHIFT:
-                                self.add_latency("RL")
-                            else:
-                                self.add_latency("RR")
-                    elif event.key == pygame.K_j:
-                        self.add_latency("RR")
-                    elif event.key == pygame.K_k:
-                        self.add_latency("RL")
+                    elif event.data1 == 74:
+                        self.input_stop_drop()
+                    elif event.data1 == 48 and self.inverted:
+                        self.input_stop_drop()
 
-                    #solver
-                    elif event.key == pygame.K_n:
-                        if self.solve_button:
-                            self.auto_solve = False
+        elif self.state == self.STATE_PAUSE:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p:
+                    self.input_pause()
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == self.JOY_START:
+                    self.input_pause()
 
-                    #hints
-                    elif event.key == pygame.K_h:
-                        #if hints aren't continuous, and the button is allowed
-                        if self.hint_button and not self.hint_zoid and self.hint_release:
-                            self.hint_toggle = False
-
-                elif event.type == pygame.JOYAXISMOTION:
-                    if (not self.two_player or event.joy == 0) and self.joyaxis_enabled:
-
-                        pressed = ""
-                        released = ""
-
-                        #key is pressed
-                        if event.axis == 0:
-                            if round(event.value) == 1.0:
-                                pressed = "RIGHT"
-                                released = self.last_ud_pressed
-                                self.last_ud_pressed = ""
-                            elif round(event.value) == -1.0:
-                                pressed = "LEFT"
-                                released = self.last_ud_pressed
-                                self.last_ud_pressed = ""
-                            elif round(event.value) == 0.0:
-                                released = self.last_lr_pressed
-                                self.last_lr_pressed = ""
-                        elif event.axis == 1:
-                            if round(event.value) == 1.0:
-                                pressed = "DOWN"
-                                if not self.inverted:
-                                    released = self.last_lr_pressed
-                                    self.last_lr_pressed = ""
-                            elif round(event.value) == -1.0:
-                                pressed = "UP"
-                                if self.inverted:
-                                    released = self.last_lr_pressed
-                                    self.last_lr_pressed = ""
-                            elif round(event.value) == 0.0:
-                                released = self.last_ud_pressed
-                                self.last_ud_pressed = ""
-
-                        #resolve release event
-                        if released != "":
-                            if released == "DOWN":
-                                self.input_stop_drop()
-                            elif released == "UP" and self.inverted:
-                                self.input_stop_drop()
-                            elif released == "LEFT":
-                                self.input_trans_stop(-1)
-                            elif released == "RIGHT":
-                                self.input_trans_stop(1)
-
-                            self.log_game_event( "KEYPRESS", "RELEASE", released)
-                            #print("released", released)
-
-                        #resolve pressed
-                        if pressed != "":
-                            if pressed == "DOWN":
-                                self.last_ud_pressed = pressed
-                                if self.inverted:
-                                    self.input_slam()
-                                    self.input_undo()
-                                else:
-                                    self.tEvent = 'KeyPressDown'
-                                    self.input_start_drop()
-                            elif pressed == "UP":
-                                self.last_ud_pressed = pressed
-                                if self.inverted:
-                                    self.input_start_drop()
-                                else:
-                                    self.input_slam()
-                                    self.input_undo()
-                            elif pressed == "LEFT":
-                                self.last_lr_pressed = pressed
-                                self.input_trans_left()
-                                self.das_held = -1
-                            elif pressed == "RIGHT":
-                                self.last_lr_pressed = pressed
-                                self.input_trans_right()
-                                self.das_held = 1
-                            self.log_game_event( "KEYPRESS", "PRESS", pressed)
-                            #print("pressed", pressed)
-
-
-
-
-                elif event.type == pygame.JOYBUTTONDOWN:
-                    #player 1
-                    if not self.two_player or event.joy == 0:
-                        if event.button == self.JOY_LEFT:
-                            self.input_trans_left()
-                            self.das_held = -1
-                        elif event.button == self.JOY_RIGHT:
-                            self.input_trans_right()
-                            self.das_held = 1
-                        elif event.button == self.JOY_DOWN:
-                            if self.inverted:
-                                self.input_slam()
-                                self.input_undo()
-                            else:
-                                self.tEvent = 'KeyPressDown'
-                                self.input_start_drop()
-                        elif event.button == self.JOY_UP:
-                            if self.inverted:
-                                self.input_start_drop()
-                            else:
-                                self.input_slam()
-                                self.input_undo()
-
-                    #player 2
-                    if not self.two_player or event.joy == 1:
-                        if event.button == self.JOY_B:
-                            self.input_counterclockwise()
-                        elif event.button == self.JOY_A:
-                            self.input_clockwise()
-                        elif event.button == self.JOY_SELECT:
-                            self.input_mask_toggle(True)
-                            self.input_place()
-                            self.input_swap()
-
-                    #both players
-                    if event.button == self.JOY_START:
-                        if self.pause_enabled:
-                            self.input_pause()
-                        else:
-                            self.input_place()
-
-
-
-                elif event.type == pygame.JOYBUTTONUP:
-                    if not self.two_player or event.joy == 0:
-                        if event.button == self.JOY_DOWN:
-                            self.input_stop_drop()
-                        elif event.button == self.JOY_UP and self.inverted:
-                            self.input_stop_drop()
-                        elif event.button == self.JOY_LEFT:
-                            self.input_trans_stop(-1)
-                        elif event.button == self.JOY_RIGHT:
-                            self.input_trans_stop(1)
-                        elif event.button == self.JOY_A:
-                            self.add_latency("RR")
-                        elif event.button == self.JOY_B:
-                            self.add_latency("RL")
-
-                    if not self.two_player or event.joy == 1:
-                        if event.button == self.JOY_SELECT:
-                            self.input_mask_toggle(False)
-                #PH MIDI
-                elif event.type == pygame.MIDIIN:
-                    if event.status == 144:
-                        print("MKey Down")
-                        if event.data1 == 72:
-                            self.tEvent = 'KeyPressLeft'
-                            self.input_trans_left()
-                            self.das_held = -1
-                        elif event.data1 == 76:
-                            self.tEvent = 'KeyPressRight'
-                            self.input_trans_right()
-                            self.das_held = 1
-                        elif event.data1 == 74:
-                            
-                            if self.inverted:
-                                self.tEvent = 'KeyPressClockwise'
-                                self.input_rotate_single()
-                            else:
-                                self.tEvent = 'KeyPressDown'
-                                self.input_start_drop()
-                        elif event.data1 == 48:
-                            if self.inverted:
-                                self.tEvent = 'KeyPressDown'
-                                self.input_start_drop()
-                            else:
-                                self.tEvent = 'KeyPressClockwise'
-                                self.input_rotate_single()
-                    elif event.status == 128:
-                        print("MKey Up")
-                        if event.data1 == 72:
-                            #print("stop drop")
-                            self.input_trans_stop(-1)
-                        elif event.data1 == 76:
-                            self.input_trans_stop(1)
-                        elif event.data1 == 74:
-                            self.input_stop_drop()
-                        elif event.data1 == 48 and self.inverted:
-                            self.input_stop_drop()
-
-            elif self.state == self.STATE_PAUSE:
+        #Gameover state controls
+        elif self.state == self.STATE_GAMEOVER:
+            if self.implement_gameover_fixcross != True or self.time_over() or self.episode_number == self.max_eps - 1:
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_p:
-                        self.input_pause()
+                    if event.key == pygame.K_SPACE:
+                        self.input_continue()
                 if event.type == pygame.JOYBUTTONDOWN:
                     if event.button == self.JOY_START:
-                        self.input_pause()
-
-            #Gameover state controls
-            elif self.state == self.STATE_GAMEOVER:
-                if self.implement_gameover_fixcross != True or self.time_over() or self.episode_number == self.max_eps - 1:
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_SPACE:
-                            self.input_continue()
-                    if event.type == pygame.JOYBUTTONDOWN:
-                        if event.button == self.JOY_START:
-                            self.input_continue()
-                elif self.implement_gameover_fixcross == True and self.time_over() != True and self.episode_number != self.max_eps - 1:
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_SPACE:
-                            self.log_game_event("GAMEOVER_FIXCROSS", "START")
-                            self.state = self.STATE_GAMEOVER_FIXATION
-                            #self.gameover_params['bg_color'] = self.mask_color
-                            self.validator = Validator( self.client, self.screen, reactor = reactor, escape = True, params = self.gameover_params)
-                            self.validator.start(self.fixcross)
-                            # self.input_continue()
-                    if event.type == pygame.JOYBUTTONDOWN:
-                        if event.button == self.JOY_START:
-                            self.log_game_event("GAMEOVER_FIXCROSS", "START")
-                            self.state = self.STATE_GAMEOVER_FIXATION
-                            #self.gameover_params['bg_color'] = self.mask_color
-                            self.validator = Validator( self.client, self.screen, reactor = reactor, escape = True, params = self.gameover_params)
-                            self.validator.start(self.fixcross)
-                            # self.input_continue()
+                        self.input_continue()
+            elif self.implement_gameover_fixcross == True and self.time_over() != True and self.episode_number != self.max_eps - 1:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        self.log_game_event("GAMEOVER_FIXCROSS", "START")
+                        self.state = self.STATE_GAMEOVER_FIXATION
+                        #self.gameover_params['bg_color'] = self.mask_color
+                        self.validator = Validator( self.client, self.screen, reactor = reactor, escape = True, params = self.gameover_params)
+                        self.validator.start(self.fixcross)
+                        # self.input_continue()
+                if event.type == pygame.JOYBUTTONDOWN:
+                    if event.button == self.JOY_START:
+                        self.log_game_event("GAMEOVER_FIXCROSS", "START")
+                        self.state = self.STATE_GAMEOVER_FIXATION
+                        #self.gameover_params['bg_color'] = self.mask_color
+                        self.validator = Validator( self.client, self.screen, reactor = reactor, escape = True, params = self.gameover_params)
+                        self.validator.start(self.fixcross)
+                        # self.input_continue()
 
 
         if self.args.eyetracker and eyetrackerSupport and len( World.gaze_buffer ) > 1:
@@ -2593,6 +2624,7 @@ class World( object ):
         if direction == self.das_held or not self.das_reversible:
             self.das_timer = 0
             self.das_held = 0
+            self.das_delay_counter = 0
         if direction == -1:
             self.add_latency("TL")
         elif direction == 1:
@@ -3047,7 +3079,7 @@ class World( object ):
         else:
             self.prop_drop = 0.0
 
-        latency_diffs = numpy.diff(self.latencies)
+        latency_diffs = np.diff(self.latencies)
         if len(latency_diffs) != 0:
             self.avg_latency = sum(latency_diffs) / (len(latency_diffs) * 1.0)
         else:
@@ -3143,7 +3175,6 @@ class World( object ):
                 self.timer = 0
                 self.curr_zoid.down( self.interval_toggle )
 
-    #def das_tick
     def das_tick( self ):
         if not self.das_chargeable:
             self.das_timer += 1
@@ -3153,6 +3184,31 @@ class World( object ):
             elif self.das_held == 1:
                 self.curr_zoid.right()
 
+    ##### Commented out for now as it results in unintended behavior
+    # def das_tick(self):
+    #     if not self.das_chargeable:
+    #         self.das_timer += 1
+    #     if self.das_timer >= self.das_delay and (self.das_timer - self.das_delay) % self.das_repeat == 0:
+    #         # Generate a random delay value (in frames)
+    #         delay_frames = np.random.uniform(0, self.das_delay_randomization)
+    #         print(delay_frames)
+    #         if self.das_held == -1:
+    #             if self.das_delay_counter == 0:
+    #                 self.das_delay_counter = delay_frames
+    #             else:
+    #                 self.das_delay_counter -= 1
+    #                 if self.das_delay_counter <= 0:
+    #                     self.curr_zoid.left()
+    #                     self.das_delay_counter = 0
+    #         elif self.das_held == 1:
+    #             if self.das_delay_counter == 0:
+    #                 self.das_delay_counter = delay_frames
+    #             else:
+    #                 self.das_delay_counter -= 1
+    #                 if self.das_delay_counter <= 0:
+    #                     self.curr_zoid.right()
+    #                     self.das_delay_counter = 0
+    #         print(self.das_delay_counter)
 
     #update the on-line board statistics
     def update_stats( self ):
@@ -3274,6 +3330,7 @@ class World( object ):
         self.timer = 0
         self.das_timer = 0
         self.das_held = 0
+        self.das_delay_counter = 0
 
         self.needs_new_zoid = False
         self.are_counter = 0

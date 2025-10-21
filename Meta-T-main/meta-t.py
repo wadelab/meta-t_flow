@@ -38,8 +38,18 @@ def date_time_filename():
     namestring += str( date.tm_sec )
     #namestring += ".tsv"
     return namestring
-###
 
+def two_digit_date_time_filename():
+    namestring = ""
+    date = time.localtime()
+    namestring += str(date.tm_year % 100).zfill(2) + "-"  # 2-digit year
+    namestring += str(date.tm_mon).zfill(2) + "-"        # 2-digit month
+    namestring += str(date.tm_mday).zfill(2) + "_"       # 2-digit day
+    namestring += str(date.tm_hour).zfill(2) + "-"      # 2-digit hour
+    namestring += str(date.tm_min).zfill(2) + "-"       # 2-digit minute
+    namestring += str(date.tm_sec).zfill(2)             # 2-digit second
+    return namestring
+###
 
 if __name__ == '__main__':
 
@@ -51,7 +61,7 @@ if __name__ == '__main__':
                         help = "Set the filename(s) of the .config file(s) to be used")
     
     parser.add_argument( '-L', '--logfile', 
-                        action = "store", dest = "logfile", default = date_time_filename(), 
+                        action = "store", dest = "logfile", default = two_digit_date_time_filename(), 
                         help = 'Pipe results to given filename; "[year_month_day_hour-min-sec].tsv" by default.' )
     parser.add_argument( '-d', '--logdir', 
                         action = "store", dest = "logdir",
