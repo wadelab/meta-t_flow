@@ -2604,6 +2604,10 @@ class World( object ):
                 self.state = self.STATE_PLAY
                 self.log_game_event("UNPAUSED")
                 pygame.mixer.music.unpause()
+                # Clear event queue and reset joystick state to prevent held axes from triggering moves
+                pygame.event.clear()
+                self.last_ud_pressed = ""
+                self.last_lr_pressed = ""
             self.sounds["pause"].play()
 
 
