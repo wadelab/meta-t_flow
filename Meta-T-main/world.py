@@ -1027,8 +1027,8 @@ class World( object ):
 
         if self.args.logfile:
 
-            self.filename = f'{self.input_delay}_{self.intervals}_{self.args.logfile}'
-            self.logname = os.path.join( self.logdir, self.SID, self.filename )
+            self.filename = f'{self.SID}_{self.args.logfile}'
+            self.logname = os.path.join( self.logdir, self.filename )
 
             if not os.path.exists( self.logdir ):
                 os.makedirs( self.logdir )

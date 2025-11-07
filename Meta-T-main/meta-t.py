@@ -61,7 +61,7 @@ if __name__ == '__main__':
                         help = "Set the filename(s) of the .config file(s) to be used")
     
     parser.add_argument( '-L', '--logfile', 
-                        action = "store", dest = "logfile", default = two_digit_date_time_filename(), 
+                        action = "store", dest = "logfile", default = date_time_filename(), 
                         help = 'Pipe results to given filename; "[year_month_day_hour-min-sec].tsv" by default.' )
     parser.add_argument( '-d', '--logdir', 
                         action = "store", dest = "logdir",
