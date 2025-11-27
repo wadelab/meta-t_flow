@@ -117,6 +117,10 @@ class World( object ):
 
         #After Action Review state
         self.STATE_AAR = 5
+        
+        #Rest screen states
+        self.STATE_REST_START = 7
+        self.STATE_REST_END = 8
         self.LOG_VERSION = 3.1
 
         #token names for latency logging
@@ -412,6 +416,7 @@ class World( object ):
         self.logo = pygame.image.load( "media" + sep + "logo.png" )
         self.rpi_tag = pygame.image.load( "media" + sep + "std-rpilogo.gif" )
         self.cwl_tag = pygame.image.load( "media" + sep + "cogworks.gif" )
+        self.rest_image = pygame.image.load( "tetris1.png" )
 
         if self.fullscreen:
             self.screen = pygame.display.set_mode( ( 0, 0 ), pygame.FULLSCREEN )
@@ -1888,6 +1893,22 @@ class World( object ):
         if self.title_blink_timer >= self.fps * 3 / 2:
            self.title_blink_timer = 0
 
+    def draw_rest_screen( self ):
+        self.worldsurf.fill( ( 0, 0, 0 ) )
+        rest_rect = self.rest_image.get_rect()
+        rest_rect.center = self.worldsurf_rect.center
+        self.worldsurf.blit( self.rest_image, rest_rect )
+        
+        # Add blinking prompt
+        self.title_blink_timer += 1
+        if self.title_blink_timer <= self.fps * 3 / 4:
+            if pygame.joystick.get_count() > 0:
+                self.draw_text( "press any button to continue", self.scores_font, ( 255, 255, 255 ), ( self.worldsurf_rect.centerx, self.worldsurf_rect.height - self.worldsurf_rect.height / 8 ), self.worldsurf )
+            else:
+                self.draw_text( "press any key to continue", self.scores_font, ( 255, 255, 255 ), ( self.worldsurf_rect.centerx, self.worldsurf_rect.height - self.worldsurf_rect.height / 8 ), self.worldsurf )
+        if self.title_blink_timer >= self.fps * 3 / 2:
+           self.title_blink_timer = 0
+
     def draw_AAR(self):
         self.worldsurf.fill( self.bg_color )
 
@@ -2055,6 +2076,8 @@ class World( object ):
     def draw( self ):
         if self.state == self.STATE_INTRO:
             self.draw_intro()
+        elif self.state == self.STATE_REST_START or self.state == self.STATE_REST_END:
+            self.draw_rest_screen()
         elif self.state == self.STATE_PLAY:
             self.bg_color = self.tetris_flash_colors[self.tetris_flash_tick % 2]
             if self.tetris_flash_tick > 0:
@@ -2114,6 +2137,9 @@ class World( object ):
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                     self.process_event(event)
                 elif event.type == pygame.JOYBUTTONDOWN and event.button == self.JOY_START:
+                    self.process_event(event)
+            elif self.state == self.STATE_REST_START or self.state == self.STATE_REST_END:
+                if event.type == pygame.KEYDOWN or event.type == pygame.JOYBUTTONDOWN:
                     self.process_event(event)
             #escape clause
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -2182,14 +2208,32 @@ class World( object ):
         if self.state == self.STATE_INTRO:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    self.state += 1
+                    self.state = self.STATE_REST_START
                     self.time_limit_start = get_time()
 
             #joystick controls
             elif event.type == pygame.JOYBUTTONDOWN:
                 if event.button == self.JOY_START :
-                    self.state += 1
+                    self.state = self.STATE_REST_START
                     self.time_limit_start = get_time()
+
+        #Rest screen at start controls
+        elif self.state == self.STATE_REST_START:
+            if event.type == pygame.KEYDOWN:
+                self.state = self.STATE_SETUP
+                self.log_game_event("REST_SCREEN", "START", "DISMISSED")
+            elif event.type == pygame.JOYBUTTONDOWN:
+                self.state = self.STATE_SETUP
+                self.log_game_event("REST_SCREEN", "START", "DISMISSED")
+
+        #Rest screen at end controls
+        elif self.state == self.STATE_REST_END:
+            if event.type == pygame.KEYDOWN:
+                self.state = self.STATE_GAMEOVER
+                self.log_game_event("REST_SCREEN", "END", "DISMISSED")
+            elif event.type == pygame.JOYBUTTONDOWN:
+                self.state = self.STATE_GAMEOVER
+                self.log_game_event("REST_SCREEN", "END", "DISMISSED")
 
         #After-Action Review controls
         elif self.state == self.STATE_AAR:
@@ -3164,7 +3208,8 @@ class World( object ):
         self.log_game_event( "GAME", "END", self.game_number )
         self.log_gameresults(complete = False if self.time_over() else True)
         self.continues -= 1
-        self.state = self.STATE_GAMEOVER
+        self.state = self.STATE_REST_END
+        self.log_game_event("REST_SCREEN", "END", "SHOWN")
         if self.time_over() or self.episode_number == self.max_eps - 1:
             self.sounds['pause'].play()
         else:
